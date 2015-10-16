@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+ 	   xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="
+       http://www.osgi.org/xmlns/blueprint/v1.0.0 http://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd
+       http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+
+
+<cm:property-placeholder id="placeholder" persistent-id="latlon.database.sendmsg">
+    <cm:default-properties>
+      <cm:property name="amq.username" value="admin"/>
+      <cm:property name="amq.password" value="admin"/>
+      <cm:property name="amq.url" value="discovery:(fabric:latlon)"/>
+      <cm:property name="db.username" value="sa"/>
+      <cm:property name="db.password" value="September00"/>
+      <cm:property name="db.url" value="jdbc:sqlserver://localhost;databaseName=main_test2"/>
+      <cm:property name="sql.selectMessage" value="Select TOP 10 * FROM MESSAGE_DECODER_QUEUE"/>
+      <cm:property name="sql.deleteMessage" value="DELETE FROM MESSAGE_REPORT_v2 WHERE MESSAGE_ID \= \:\#MESSAGE_ID"/>
+    </cm:default-properties>
+  </cm:property-placeholder>
+<!-- Imported OSGi services include the Transaction manager and JDBC DataSource -->
+ <!--  
+<reference id="LatLon-db" interface="javax.sql.DataSource" availability="mandatory" filter="(datasource.name=SQL_Src_LL)"/> 
+  -->  
+
+<!--*************** this is the JDBC data sources for development test ******************************************************-->
+
+<bean id="LatLon-db" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+  <property name="driverClassName" value="com.microsoft.sqlserver.jdbc.SQLServerDriver"/>
+  <property name="url" value="${db.url}"/>
+  <property name="username" value="${db.username}"/>
+  <property name="password" value="${db.password}"/>
+</bean>
+
+<!--*************************************************************************************************************************-->
+
+  
+<!-- configure the Camel SQL component to use the JDBC data source -->
+<bean id="sqlSrc" class="org.apache.camel.component.sql.SqlComponent">
+  <property name="dataSource" ref="LatLon-db"/>
+</bean>
+
+
+<!--*************** this is the JMS data source for AMQ *******************************************************-->
+  <bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+    <!--  property name="brokerURL" value="discovery:(fabric:latlon)"/-->
+    <property name="brokerURL" value="tcp://localhost:61616"/>
+    <property name="userName" value="admin"/>
+    <property name="password" value="admin"/>
+  </bean>
+
+  <bean id="pooledConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory">
+    <property name="maxConnections" value="1"/>
+    <property name="maximumActiveSessionPerConnection" value="500"/>
+    <property name="connectionFactory" ref="jmsConnectionFactory"/>
+  </bean>
+
+  <bean id="activemq" class="org.apache.activemq.camel.component.ActiveMQComponent">
+    <property name="connectionFactory" ref="pooledConnectionFactory"/>
+  </bean>
+<!--*************** this is the JMS data source for AMQ *******************************************************--> 
+   
+   <bean id="decrypter" class="bsm.decrypt.latlon.Decrypter"/>
+   
+   
+  <camelContext id="Decrypter" xmlns="http://camel.apache.org/schema/blueprint">
+  <route id="Decrypter">
+    <from uri="sqlSrc:{{sql.selectMessage}}" id="Select Raw Message"/>
+    <bean ref="decrypter" method="decryptMsg" id="Decryptor Bean"/>
+    <log message="Sending Decrypted Message " loggingLevel="INFO" id="Trace Decrypted Msg"/>
+    <to uri="activemq:queue:DECRYPTED_MSG" id="Send to Decrypted Q"/>
+  </route>
+</camelContext>
+
+</blueprint>
